@@ -148,10 +148,7 @@ class rpauthMilter(Milter.Base):
 		return Milter.CONTINUE
 
 def main(argv):
-	if len(argv) != 2:
-		print('Usage: rpauth-milter socketname', file=sys.stderr)
-		return 2
-	socketname = argv[1]
+	socketname = 'inet:8894@127.0.0.1'
 	Milter.factory = rpauthMilter
 	Milter.set_flags(Milter.ADDRCPT + Milter.ADDRCPT_PAR + Milter.DELRCPT)
 	Milter.set_exception_policy(Milter.CONTINUE)
