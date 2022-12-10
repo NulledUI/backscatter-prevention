@@ -45,11 +45,22 @@ class rpauthMilter(Milter.Base):
 		syslog.syslog('[%d] %s' % (self.id, ' '.join([str(m) for m in msg])))
 
 	def __init__(self):
+		self.reset()
+#               self.id = Milter.uniqueID()
+
+        def reset(self):
+                self.sender_ipaddr = None
+                self.from_user = None
+                self.from_domain = None
+                self.mail_from = None
+                self.rcpt_to = None
+                self.buf = None
 		self.id = Milter.uniqueID()
 
 	@Milter.noreply
 	def connect(self, hostname, family, hostaddr):
 		if family == socket.AF_INET or family == socket.AF_INET6:
+			self.reset()
 			self.sender_ipaddr = hostaddr[0]
 		else:
 			self.sender_ipaddr = None
@@ -93,18 +104,20 @@ class rpauthMilter(Milter.Base):
 		if self.sender_ipaddr is None:
 			self.log('Cannot verify SPF because there is no sender IP address')
 			return False
+		
 		q = spf.query(self.sender_ipaddr, self.from_domain, None)
 		res, code, txt = q.check()
 		self.log('SPF for %s from %s is %s' % (self.from_domain, self.sender_ipaddr, res))
 		return res == 'pass'
 
 	def has_valid_dkim(self):
+		buf = None
 		self.buf.seek(0)
 		buf = self.buf.read()
-		d = dkim.DKIM(buf)
 		try:
+			d = dkim.DKIM(buf)
 			if not d.verify():
-				self.log('DKIM is invalid')
+				self.log('DKIM: Fail (%s)' % self.from_domain)
 				return False
 		except dkim.DKIMException as x:
 			self.log('DKIM exception: %s' % x)
@@ -112,14 +125,16 @@ class rpauthMilter(Milter.Base):
 		except Exception as x:
 			self.log('Exception while checking DKIM: %s' % x)
 			return False
+		self.log('DKIM: Pass (%s)' % self.from_domain)
+                return d
 
-		dkim_identity = d.signature_fields.get(b'i')
-		if dkim_identity is None:
-			dkim_identity = "@" + d.signature_fields.get(b'd')
-		dkim_identity = dkim_identity.lower()
+#		dkim_identity = d.signature_fields.get(b'i')
+#		if dkim_identity is None:
+#			dkim_identity = "@" + d.signature_fields.get(b'd')
+#		dkim_identity = dkim_identity.lower()
 
-		self.log('DKIM: identity=%s; user=%s; domain=%s' % (dkim_identity, self.from_user, self.from_domain))
-		return dkim_identity == '@' + self.from_domain or dkim_identity == self.from_user + '@' + self.from_domain
+#		self.log('DKIM: identity=%s; user=%s; domain=%s' % (dkim_identity, self.from_user, self.from_domain))
+#		return dkim_identity == '@' + self.from_domain or dkim_identity == self.from_user + '@' + self.from_domain
 
 	def disable_bounces(self):
 		for rcpt in self.rcpt_to:
@@ -140,7 +155,8 @@ def main(argv):
 	Milter.factory = rpauthMilter
 	Milter.set_flags(Milter.ADDRCPT + Milter.ADDRCPT_PAR + Milter.DELRCPT)
 	Milter.set_exception_policy(Milter.CONTINUE)
-	Milter.runmilter('rpauth-milter', socketname, 120)
+	sys.stdout.flush()
+	Milter.runmilter('rpauth-milter', socketname, 600)
 	return 0
 
 if __name__ == '__main__':
